@@ -1,1 +1,316 @@
-Hola
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PolyRoute</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            background-color: #f4f4f4;
+            color: #333;
+        }
+
+        h1 {
+            text-align: center;
+            margin: 20px 0;
+            color: #333;
+            font-weight: bold;
+        }
+
+        #map {
+            height: 60vh;
+            width: 100%;
+            border: 2px solid #333;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+       /* Ocultar el input de archivo */
+       #fileInput {
+            display: none;
+        }
+
+        /* Botón personalizado */
+        #customFileButton {
+            display: block;
+            margin: 20px auto;
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        #customFileButton:hover {
+            background-color: #0056b3;
+        }
+
+        #pointsTable {
+            width: 100%;
+            margin: 20px auto;
+            max-width: 800px;
+            border-collapse: collapse;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        #pointsTable th,
+        #pointsTable td {
+            padding: 12px;
+            text-align: left;
+            border: 1px solid #ddd;
+        }
+
+        #pointsTable th {
+            background-color: #4CAF50;
+            color: white;
+            font-weight: bold;
+        }
+
+        #pointsTable tr:hover {
+            background-color: #f1f1f1;
+        }
+
+        #pointsTable tr.highlight {
+            background-color: #c8e6c9 !important;
+        }
+
+        #saveButton {
+            display: block;
+            width: 200px;
+            margin: 20px auto;
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            text-align: center;
+        }
+
+        #saveButton:hover {
+            background-color: #45a049;
+        }
+
+        #pointsInPolygon {
+            text-align: center;
+            font-weight: bold;
+            margin-top: 20px;
+            color: #333;
+            font-size: 18px;
+        }
+
+        table {
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        @media screen and (max-width: 768px) {
+            #pointsTable,
+            #saveButton {
+                width: 90%;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <h1>PolyRoute</h1>
+
+     <!-- Botón personalizado para cargar el archivo CSV -->
+     <button id="customFileButton">Seleccionar archivo CSV</button>
+     <input type="file" id="fileInput" accept=".csv" />
+
+    <!-- Contenedor para el mapa -->
+    <div id="map"></div>
+
+    <!-- Mostrar el número de puntos dentro del polígono -->
+    <p id="pointsInPolygon">Puntos dentro del polígono: 0</p>
+
+    <!-- Contenedor para la tabla -->
+    <table id="pointsTable">
+        <thead>
+            <tr>
+                <th>Nombre</th>
+                <th>Latitud</th>
+                <th>Longitud</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+
+    <!-- Botón para guardar el CSV -->
+    <button id="saveButton">Grabar</button>
+
+    <!-- Script de PapaParse para leer CSV -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+
+    <!-- Script de Sortable.js para hacer drag and drop en la tabla -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.14.0/Sortable.min.js"></script>
+
+    <!-- Script de Google Maps API -->
+    <script async
+        src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCWV2dc9MIQbN9HX4CMu5W7hu4IU_5qUaY&libraries=geometry,drawing&callback=initMap">
+    </script>
+
+    <!-- Script para inicializar el mapa y procesar los puntos -->
+    <script>
+        let map; // Variable global para el mapa
+        let editablePolygon; // Variable para el polígono editable
+        let markers = []; // Array para almacenar los puntos
+        let draggableTableRows; // Variable para manejar el arrastre de filas
+
+        // Función para inicializar el mapa
+        function initMap() {
+            const center = { lat: -34.6037, lng: -58.3816 }; // Buenos Aires centro
+
+            map = new google.maps.Map(document.getElementById("map"), {
+                zoom: 13,
+                center: center
+            });
+
+            // Crear un polígono editable en el centro del mapa
+            editablePolygon = new google.maps.Polygon({
+                paths: [
+                    { lat: -34.590, lng: -58.382 },
+                    { lat: -34.590, lng: -58.390 },
+                    { lat: -34.602, lng: -58.390 },
+                    { lat: -34.602, lng: -58.382 }
+                ],
+                strokeColor: "#FF0000",
+                strokeOpacity: 0.8,
+                strokeWeight: 2,
+                fillColor: "#FF0000",
+                fillOpacity: 0.35,
+                editable: true
+            });
+            editablePolygon.setMap(map);
+
+            // Escuchar cambios en el polígono editable
+            google.maps.event.addListener(editablePolygon.getPath(), 'set_at', updateMarkersInPolygon);
+            google.maps.event.addListener(editablePolygon.getPath(), 'insert_at', updateMarkersInPolygon);
+
+            // Escuchar el cambio en el input para leer el archivo CSV
+            document.getElementById('fileInput').addEventListener('change', handleFileSelect);
+
+            // Escuchar el clic en el botón de guardar CSV
+            document.getElementById('saveButton').addEventListener('click', saveCsv);
+
+             // Escuchar clic en el botón personalizado para abrir el diálogo de archivo
+             document.getElementById('customFileButton').addEventListener('click', () => {
+                document.getElementById('fileInput').click();
+            });
+
+        }
+
+        // Función para procesar el archivo CSV
+        function handleFileSelect(event) {
+            const file = event.target.files[0]; // Obtenemos el archivo
+            if (file) {
+                Papa.parse(file, {
+                    header: true, // Si el CSV tiene encabezados
+                    dynamicTyping: true, // Convierte los números automáticamente
+                    complete: function (results) {
+                        const data = results.data; // Datos del CSV
+                        clearMarkers(); // Limpiar los marcadores anteriores
+                        updateMapAndTable(data); // Actualizar el mapa y la tabla
+                    }
+                });
+            }
+        }
+
+        // Función para actualizar el mapa y la tabla con los puntos del CSV
+        function updateMapAndTable(data) {
+            const tbody = document.getElementById("pointsTable").querySelector("tbody");
+            tbody.innerHTML = ''; // Limpiar tabla
+
+            data.forEach(row => {
+                if (row.lat && row.lng) { // Verificamos que las coordenadas existan
+                    const position = { lat: parseFloat(row.lat), lng: parseFloat(row.lng) };
+
+                    // Agregar marcador en el mapa
+                    const marker = new google.maps.Marker({
+                        position: position,
+                        map: map,
+                        title: row.name || "Punto"
+                    });
+                    markers.push(marker); // Almacenar marcador
+
+                    // Agregar fila en la tabla
+                    const rowElement = document.createElement("tr");
+                    rowElement.innerHTML = `<td>${row.name || "Punto"}</td><td>${row.lat}</td><td>${row.lng}</td>`;
+                    tbody.appendChild(rowElement);
+                }
+            });
+
+            // Hacer la tabla drag and drop
+            draggableTableRows = Sortable.create(tbody, {
+                animation: 150,
+            });
+
+            // Actualizar los puntos dentro del polígono
+            updateMarkersInPolygon();
+        }
+
+        // Función para eliminar todos los marcadores
+        function clearMarkers() {
+            markers.forEach(marker => marker.setMap(null));
+            markers = [];
+        }
+
+        // Función para verificar si los puntos están dentro del polígono
+        function updateMarkersInPolygon() {
+            const tbody = document.getElementById("pointsTable").querySelector("tbody");
+            const rows = Array.from(tbody.getElementsByTagName("tr"));
+            let countInPolygon = 0; // Contador de puntos dentro del polígono
+
+            markers.forEach((marker, index) => {
+                const isInPolygon = google.maps.geometry.poly.containsLocation(marker.getPosition(), editablePolygon);
+                if (isInPolygon) {
+                    rows[index].classList.add("highlight");
+                    countInPolygon++;
+                } else {
+                    rows[index].classList.remove("highlight");
+                }
+            });
+
+            // Actualizar el contador de puntos dentro del polígono
+            document.getElementById("pointsInPolygon").textContent = `Puntos dentro del polígono: ${countInPolygon}`;
+        }
+
+        // Función para guardar los puntos dentro del polígono en un archivo CSV
+        function saveCsv() {
+            const rows = document.querySelectorAll("tr.highlight");
+            const csvData = [["name", "lat", "lng"]];
+
+            rows.forEach(row => {
+                const name = row.cells[0].textContent;
+                const lat = row.cells[1].textContent;
+                const lng = row.cells[2].textContent;
+                csvData.push([name, lat, lng]);
+            });
+
+            const csvContent = csvData.map(e => e.join(",")).join("\n");
+            const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            link.setAttribute("href", url);
+            link.setAttribute("download", "puntos_dentro_poligono.csv");
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+    </script>
+</body>
+
+</html>
